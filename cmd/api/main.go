@@ -11,11 +11,13 @@ const (
 	db_path = "./data.db"
 )
 
-type App struct {
+type API struct {
 	infoLog  *log.Logger
 	errorLog *log.Logger
 	storage  *bolt.Bolt
 }
+
+var JWTsecretKey []byte
 
 func main() {
 	infoLog := log.New(os.Stdout, "INFO\t", log.Ltime)
@@ -27,7 +29,9 @@ func main() {
 	}
 	defer storage.Close()
 
-	app := App{
+	JWTsecretKey = []byte("JWT_SECRET")
+
+	app := API{
 		infoLog:  infoLog,
 		errorLog: errorLog,
 		storage:  storage,

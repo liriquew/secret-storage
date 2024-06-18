@@ -12,7 +12,10 @@ type Bolt struct {
 	rwMutex sync.RWMutex
 }
 
-var bucketName = []byte("kv")
+var (
+	kvBucketName   = []byte("kv")
+	userBucketName = []byte("user")
+)
 
 func New(path string) (*Bolt, error) {
 	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 1 * time.Second})
@@ -21,7 +24,10 @@ func New(path string) (*Bolt, error) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("kv"))
+		_, err := tx.CreateBucketIfNotExists(kvBucketName)
+		if err == nil {
+			_, err = tx.CreateBucketIfNotExists(userBucketName)
+		}
 		return err
 	})
 
@@ -37,49 +43,45 @@ func (b *Bolt) Close() error {
 }
 
 func (b *Bolt) Put(key, value []byte) error {
-	fmt.Println("PUT START")
+	//fmt.Println("PUT START")
 	b.rwMutex.Lock()
-	err := b.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketName)
+	defer b.rwMutex.Unlock()
+	return b.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(kvBucketName)
 		err := b.Put(key, value)
-		time.Sleep(time.Second * 15)
-		fmt.Println("PUT END")
+		//fmt.Println("PUT END")
 		return err
 	})
-	b.rwMutex.Unlock()
-	return err
 }
 
 func (b *Bolt) Get(key []byte) ([]byte, error) {
-	fmt.Println("GET START")
+	//fmt.Println("GET START")
 	b.rwMutex.RLock()
 	var value []byte
 	err := b.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketName)
+		b := tx.Bucket(kvBucketName)
 		value = b.Get(key)
 		return nil
 	})
 	b.rwMutex.RUnlock()
-	fmt.Println("GET END")
+	//fmt.Println("GET END")
 	return value, err
 }
 
 func (b *Bolt) Delete(key []byte) error {
 	fmt.Println("DELETE START")
 	b.rwMutex.Lock()
-	err := b.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketName)
+	defer b.rwMutex.Unlock()
+	return b.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(kvBucketName)
 		return b.Delete(key)
 	})
-	b.rwMutex.Unlock()
-	return err
 }
 
-func (b *Bolt) List() ([][]byte, error) {
-	var values [][]byte
-	fmt.Println("START")
+func (b *Bolt) List() error {
+	fmt.Println("------KV------")
 	err := b.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketName)
+		b := tx.Bucket(kvBucketName)
 		c := b.Cursor()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -87,6 +89,19 @@ func (b *Bolt) List() ([][]byte, error) {
 		}
 		return nil
 	})
-	fmt.Println("END")
-	return values, err
+
+	if err != nil {
+		return err
+	}
+	fmt.Println("-----USERS-----")
+	err = b.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(userBucketName)
+		c := b.Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			fmt.Printf("key=%s, value=%s\n", k, v)
+		}
+		return nil
+	})
+	return err
 }
