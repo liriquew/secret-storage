@@ -8,29 +8,29 @@ import (
 	"time"
 )
 
-func (app *API) AuthRequired(next http.HandlerFunc) http.HandlerFunc {
+func (api *API) AuthRequired(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, err := CheckJWT(r)
 
 		if err != nil {
-			app.errorLog.Println("error checking JWT token:", err)
+			api.errorLog.Println("error checking JWT token:", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(err.Error()))
 			return
 		}
 
 		// проверка, существует ли такой пользователь
-		err = app.storage.CheckUser(username)
+		isExist, err := api.storage.CheckUser(username)
 
 		if err != nil {
-			app.errorLog.Println("Check user error:", err)
+			api.errorLog.Println("Check user error:", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(err.Error()))
 			return
 		}
 
-		if err != nil {
-			w.Write([]byte(err.Error()))
+		if !isExist {
+			api.errorLog.Println("user not found")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -64,7 +64,7 @@ func CheckJWT(r *http.Request) (string, error) {
 	return username, nil
 }
 
-func (app *API) GenerateJWT(username string) (string, error) {
+func (api *API) GenerateJWT(username string) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 	token.Claims = jwt.MapClaims{
 		"exp": time.Now().Add(time.Hour * 12).Unix(),
