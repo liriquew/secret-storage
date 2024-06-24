@@ -39,6 +39,6 @@ func main() {
 
 	mux := app.routes()
 
-	app.infoLog.Printf("Starting server on port %s", os.Getenv("PORT"))
+	app.infoLog.Printf("Запуск сервера на порте: :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }

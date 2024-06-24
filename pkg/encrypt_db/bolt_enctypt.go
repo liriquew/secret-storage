@@ -12,6 +12,11 @@ type BoltEncrypt struct {
 	wrapper *encrypt.Wrapper
 }
 
+type KV struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 var (
 	kvBucketName   = []byte("kv")
 	userBucketName = []byte("user")
@@ -78,12 +83,26 @@ func (b *BoltEncrypt) Delete(key []byte) error {
 	return b.db.Delete(key, kvBucketName)
 }
 
-func (b *BoltEncrypt) List() {
-	b.db.List()
+func (b *BoltEncrypt) List() ([]KV, error) {
+	list, err := b.db.ListKV()
+	if err != nil {
+		return nil, err
+	}
+
+	listEnc := make([]KV, len(list))
+
+	for i, v := range list {
+		value, err := b.wrapper.Decrypt(v.Value)
+		if err != nil {
+			return nil, err
+		}
+		listEnc[i] = KV{string(v.Key), string(value)}
+	}
+	return listEnc, nil
 }
 
 func (b *BoltEncrypt) ListEncrypted() {
-	list, err := b.db.List()
+	list, err := b.db.ShowList()
 
 	if err != nil {
 		fmt.Println(err)
@@ -93,10 +112,10 @@ func (b *BoltEncrypt) ListEncrypted() {
 	for _, r := range list {
 		valD, err := b.wrapper.Decrypt(r.Value)
 		if err != nil {
-			fmt.Println("ERROR:\t", r.Key, err)
+			fmt.Println("ERROR:\t\n", r.Key, err)
 			continue
 		}
-		fmt.Printf("INFO:\tkey=%s, value=%s", r.Key, valD)
+		fmt.Printf("INFO:\tkey=%s, value=%s\n", r.Key, valD)
 	}
 }
 

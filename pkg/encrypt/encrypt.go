@@ -5,7 +5,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"errors"
-	"fmt"
 	"io"
 	"kv-storage/pkg/bolt"
 )
@@ -83,17 +82,11 @@ func (w *Wrapper) Encrypt(plaintext []byte) ([]byte, error) {
 	}
 	ciphertext := w.aead.Seal(nil, nonce, plaintext, nil)
 
-	fmt.Println(nonce)
-	fmt.Println(ciphertext)
-
 	return append(nonce, ciphertext...), nil
 }
 
 func (w *Wrapper) Decrypt(cipherText []byte) ([]byte, error) {
 	nonce, ciphertext := cipherText[:12], cipherText[12:]
-
-	fmt.Println(nonce)
-	fmt.Println(ciphertext)
 
 	plaintext, err := w.aead.Open(nil, nonce, ciphertext, nil)
 	if err != nil {

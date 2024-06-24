@@ -60,7 +60,7 @@ func (b *Bolt) Get(key, bucketName []byte) ([]byte, error) {
 	err := b.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketName) // kv
 		if b == nil {
-			return fmt.Errorf("failed to lookup bolt DB")
+			return fmt.Errorf("failed to lookup DB")
 		}
 		value = b.Get(key)
 		return nil
@@ -92,8 +92,7 @@ func (b *Bolt) Delete(key, bucketName []byte) error {
 	})
 }
 
-func (b *Bolt) List() ([]Record, error) {
-	fmt.Println("------KV------")
+func (b *Bolt) ListKV() ([]Record, error) {
 	var list []Record
 	err := b.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(kvBucketName)
@@ -103,22 +102,6 @@ func (b *Bolt) List() ([]Record, error) {
 		c := b.Cursor()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			fmt.Printf("key=%s, value=%s\n", k, v)
-			list = append(list, Record{k, v})
-		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println("-----USERS-----")
-	err = b.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(userBucketName)
-		c := b.Cursor()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			fmt.Printf("key=%s, value=%s\n", k, v)
 			list = append(list, Record{k, v})
 		}
 		return nil
@@ -152,4 +135,37 @@ func (b *Bolt) SetToken(token []byte) error {
 		b := tx.Bucket(metaBucketName)
 		return b.Put(metaTokenName, token)
 	})
+}
+
+func (b *Bolt) ShowList() ([]Record, error) {
+	fmt.Println("------KV------")
+	var list []Record
+	err := b.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(kvBucketName)
+		if b == nil {
+			return fmt.Errorf("failed to lookup bolt DB")
+		}
+		c := b.Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			fmt.Printf("key=%s, value=%s\n", k, v)
+			list = append(list, Record{k, v})
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("-----USERS-----")
+	err = b.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(userBucketName)
+		c := b.Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			fmt.Printf("key=%s, value=%s\n", k, v)
+		}
+		return nil
+	})
+	return list, err
 }

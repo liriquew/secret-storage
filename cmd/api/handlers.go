@@ -22,27 +22,22 @@ type tokenJWT struct {
 }
 
 const (
+	keyUrlParam = "key"
+
 	headerContentType = "Content-Type"
 	jsonContentType   = "application/json"
 )
 
 func (api *API) getByKey(w http.ResponseWriter, r *http.Request) {
-	api.infoLog.Println("GET by key")
+	api.infoLog.Println("GET")
 
-	var kv kvData
-	err := json.NewDecoder(r.Body).Decode(&kv)
+	key := r.Context().Value(keyUrlParam).(string)
 
-	if err != nil {
-		api.errorLog.Println(err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	value, err := api.storage.Get([]byte(kv.Key))
+	value, err := api.storage.Get([]byte(key))
 
 	if err != nil {
 		api.errorLog.Println(err)
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -53,12 +48,11 @@ func (api *API) getByKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set(headerContentType, jsonContentType)
-	json.NewEncoder(w).Encode(kvData{"", string(value)})
-	w.WriteHeader(200)
+	json.NewEncoder(w).Encode(kvData{key, string(value)})
 }
 
 func (api *API) setByKey(w http.ResponseWriter, r *http.Request) {
-	api.infoLog.Println("SET value")
+	api.infoLog.Println("SET")
 
 	var kv kvData
 	err := json.NewDecoder(r.Body).Decode(&kv)
@@ -70,13 +64,13 @@ func (api *API) setByKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if kv.Key == "" || kv.Value == "" {
-		w.WriteHeader(400)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	err = api.storage.Set([]byte(kv.Key), []byte(kv.Value))
 	if err != nil {
-		w.WriteHeader(400)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -84,24 +78,36 @@ func (api *API) setByKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) deleteByKey(w http.ResponseWriter, r *http.Request) {
-	api.infoLog.Println("delete by key")
+	api.infoLog.Println("DELETE")
 
-	var kv kvData
-	err := json.NewDecoder(r.Body).Decode(&kv)
+	key := r.Context().Value(keyUrlParam).(string)
 
-	if err != nil || kv.Key == "" {
-		api.errorLog.Println(err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	err = api.storage.Delete([]byte(kv.Key))
+	err := api.storage.Delete([]byte(key))
 	if err != nil {
 		api.errorLog.Println(err)
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 
 	w.WriteHeader(200)
+}
+
+func (api *API) listKV(w http.ResponseWriter, r *http.Request) {
+	api.infoLog.Println("LIST")
+
+	kvs, err := api.storage.List()
+
+	if err != nil {
+		api.errorLog.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if len(kvs) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set(headerContentType, jsonContentType)
+	json.NewEncoder(w).Encode(kvs)
 }
 
 func (api *API) signUp(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +125,8 @@ func (api *API) signUp(w http.ResponseWriter, r *http.Request) {
 
 	if errors.Is(err, encrypt_db.UserAlreadyExistErr) {
 		w.WriteHeader(http.StatusConflict)
+		w.Write([]byte(err.Error()))
+		return
 	}
 
 	if err != nil {
@@ -165,7 +173,7 @@ func (api *API) signIn(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		api.errorLog.Println(err)
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 	}
 
@@ -173,8 +181,10 @@ func (api *API) signIn(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tokenJWT{token})
 }
 
+// далее обработчики для дебага
+
 func (api *API) test(w http.ResponseWriter, r *http.Request) {
-	api.storage.List()
+	api.storage.ListEncrypted()
 }
 
 func (api *API) showRootKey(w http.ResponseWriter, r *http.Request) {

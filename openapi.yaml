@@ -1,0 +1,191 @@
+openapi: 3.0.0
+info:
+  title: kv-storage
+  version: 1.0.0
+servers:
+  - url: https://localhost:8000
+tags:
+  - name: kv
+    description: Работа с хранилищем
+  - name: user
+    description: Авторизация/регистрация пользователя
+paths:
+  /api/kv:
+    post:
+      tags:
+        - kv
+      summary: Создает/устанавливает пару ключ-значение
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/keyvalue'
+        required: true
+      responses:
+        '200':
+          description: Пара ключ-значение добавлена
+        '400':
+          description: Неверно указаны параметры запроса
+      security:
+        - BearerAuth: []
+  /api/kv/{key}:
+    get:
+      tags:
+        - kv
+      summary: Возвращает значение связанное с ключом
+      parameters:
+        - name: key
+          in: path
+          description: Ключ, по которому надо получить значение
+          required: true
+          example: keyExample
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Операция выполнена успешно
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/keyvalue'
+        '400':
+          description: Неверно указаны параметры запроса
+        '404':
+          description: Ключ, указанный в теле запроса не существует
+      security:
+        - BearerAuth: []
+    delete:
+      tags:
+        - kv
+      summary: Удаляет ключ и связнное с ним значение
+      parameters:
+        - name: key
+          in: path
+          description: Ключ, по которому нужно удалить пару ключ-значение
+          required: true
+          example: keyExample
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ключ и связанное с ним значние успешно удалены
+        '400':
+          description: Не указан ключ для удаления
+      security:
+        - BearerAuth: []
+  /api/kv/list:
+    get:
+      tags:
+        - kv
+      summary: Возращает список всех пар ключ-значение из хранилища
+      responses:
+        '200':
+          description: Операция выполнена успешно
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/listkv'
+        '404':
+          description: В хранилище нет ни одного ключа
+      security:
+        - BearerAuth: []
+  /api/signup:
+    post:
+      tags:
+        - user
+      summary: Регистрация нового пользователя
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/unamepass'
+        required: true
+      responses:
+        '200':
+          description: Пользователь успешно зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWTtoken'
+        '400':
+          description: Неверно указаны параметры запроса
+        '409':
+          description: Пользователь с таким именем уже существует
+  /api/signin:
+    post:
+      tags:
+        - user
+      summary: Авторизация и взятие токена для аутентификации
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/unamepass'
+        required: true
+      responses:
+        '200':
+          description: Пользователь успешно зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWTtoken'
+        '400':
+          description: Неверно указаны параметры запроса
+        '401':
+          description: Пользователя с таким именем не существует
+components:
+  schemas:
+    keyvalue:
+      type: object
+      required:
+        - key
+        - value
+      properties:
+        key:
+          type: string
+          example: keyexample
+          description: Ключ, связанный с значением
+        value:
+          type: string
+          example: valueexample
+          description: Значение
+    JWTtoken:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTkyMTc2MzksImlhdCI6MTcxOTE3NDQzOSwic3ViIjoidW5hbWUifQ.h0VoxnCRY1Ou93VGkbkww92WaQzwSXqdJC_e2stYnm8
+
+          description: JWT токен для аутентификации
+    listkv:
+      type: array
+      items:
+        $ref: '#/components/schemas/keyvalue'
+      example:
+        - key: key1
+          value: value1
+        - id: key2
+          name: value2
+        - id: key3
+          name: value3
+    unamepass:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: username
+          description: Имя пользователя
+        password:
+          type: string
+          example: password
+          description: Имя пользователя
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
