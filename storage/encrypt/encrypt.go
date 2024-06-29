@@ -6,7 +6,8 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
-	"kv-storage/pkg/bolt"
+	"secret-storage/storage/bolt"
+	"secret-storage/storage/shamir"
 )
 
 type Wrapper struct {
@@ -14,51 +15,62 @@ type Wrapper struct {
 	keyBytes []byte
 }
 
-type RecordInfo struct {
-	Ciphertext []byte
-}
+func NewWrapper(path string, secretParts [][]byte) (*Wrapper, error) {
+	secretKey, err := shamir.Combine(secretParts)
+	if err != nil {
+		return nil, err
+	}
+	shamirWrapper, err := getAesGcmByKeyBytes(secretKey)
+	if err != nil {
+		return nil, err
+	}
 
-func NewWrapper(path string) (*Wrapper, error) {
 	db, err := bolt.New(path)
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := db.GetToken()
+	rootKey, err := db.GetToken()
 	if err != nil {
 		return nil, err
 	}
 
-	var rootKey []byte
-
-	switch len(token) {
+	var rootKeyDec []byte
+	switch len(rootKey) {
 	case 0:
-		newKey := make([]byte, 32)
-		_, err := rand.Read(newKey)
+		rootKeyDec = make([]byte, 32)
+		_, err := rand.Read(rootKeyDec)
 		if err != nil {
 			return nil, err
 		}
-		rootKey = newKey
-		db.SetToken(newKey)
-	case 32:
-		rootKey = token[:32]
+
+		rootKeyEnc, err := shamirWrapper.Encrypt(rootKeyDec)
+		if err != nil {
+			return nil, err
+		}
+		db.SetToken(rootKeyEnc)
+	case 32 + aes.BlockSize + shamirWrapper.aead.NonceSize():
+		rootKeyDec, err = shamirWrapper.Decrypt(rootKey)
+		if err != nil {
+			return nil, err
+		}
 	default:
-		return nil, errors.New("Invalid key size")
+		return nil, errors.New("invalid key size")
 	}
 
 	if err = db.Close(); err != nil {
 		return nil, errors.New("failed to close db")
 	}
 
-	wrapper, err := GetAesGcmByKeyBytes(rootKey)
-
+	wrapper, err := getAesGcmByKeyBytes(rootKeyDec)
 	if err != nil {
 		return nil, err
 	}
+
 	return wrapper, nil
 }
 
-func GetAesGcmByKeyBytes(key []byte) (*Wrapper, error) {
+func getAesGcmByKeyBytes(key []byte) (*Wrapper, error) {
 	w := &Wrapper{}
 	aesCipher, err := aes.NewCipher(key)
 	if err != nil {

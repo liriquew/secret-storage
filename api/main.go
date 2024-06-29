@@ -1,14 +1,10 @@
 package main
 
 import (
-	"kv-storage/pkg/encrypt_db"
 	"log"
 	"net/http"
 	"os"
-)
-
-const (
-	db_path = "./data.db"
+	"secret-storage/storage/encrypt_db"
 )
 
 type API struct {
@@ -23,18 +19,9 @@ func main() {
 	infoLog := log.New(os.Stdout, "INFO\t", log.Ltime)
 	errorLog := log.New(os.Stderr, "ERROR\t", log.Ltime)
 
-	storage, err := encrypt_db.NewEncryptKV(db_path)
-	if err != nil {
-		errorLog.Fatal(err)
-	}
-	defer storage.Close()
-
-	JWTsecretKey = []byte("JWT_SECRET")
-
 	app := API{
 		infoLog:  infoLog,
 		errorLog: errorLog,
-		storage:  storage,
 	}
 
 	mux := app.routes()

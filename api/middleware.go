@@ -1,19 +1,29 @@
 package main
 
 import (
-	"errors"
-	"github.com/golang-jwt/jwt"
+	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt"
 )
+
+type usernameInterface struct{}
 
 func (api *API) AuthRequired(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if api.storage == nil {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("not enough key parts"))
+			return
+		}
+
 		username, err := CheckJWT(r)
 
 		if err != nil {
-			api.errorLog.Println("error checking JWT token:", err)
+			api.errorLog.Println("AUTH: Ошибка при проверке JWT токена:", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(err.Error()))
 			return
@@ -23,18 +33,30 @@ func (api *API) AuthRequired(next http.HandlerFunc) http.HandlerFunc {
 		isExist, err := api.storage.CheckUser(username)
 
 		if err != nil {
-			api.errorLog.Println("Check user error:", err)
+			api.errorLog.Println("AUTH: Ошибка при проверке пользователя:", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(err.Error()))
 			return
 		}
 
 		if !isExist {
-			api.errorLog.Println("user not found")
+			w.Write([]byte("user not found"))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
+		ctx := context.WithValue(r.Context(), usernameInterface{}, username)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (api *API) shamirRequired(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if api.storage == nil {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("not enough key parts"))
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -42,13 +64,13 @@ func (api *API) AuthRequired(next http.HandlerFunc) http.HandlerFunc {
 func CheckJWT(r *http.Request) (string, error) {
 	tokenString := r.Header.Get("Authorization")
 	if tokenString == "" {
-		return "", errors.New("Missing Authorization header")
+		return "", fmt.Errorf("missing Authorization header")
 	}
 
 	tokenString, found := strings.CutPrefix(tokenString, "Bearer ")
 
 	if !found {
-		return "", errors.New("Missing Authorization header")
+		return "", fmt.Errorf("missing Authorization header")
 	}
 
 	claims := &jwt.MapClaims{}
@@ -57,7 +79,7 @@ func CheckJWT(r *http.Request) (string, error) {
 	})
 
 	if err != nil || !token.Valid {
-		return "", errors.New("Invalid token")
+		return "", fmt.Errorf("invalid token")
 	}
 
 	username := (*claims)["sub"].(string)
