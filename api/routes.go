@@ -34,7 +34,7 @@ func (api *API) routes() http.Handler {
 			r.Delete("/*", api.AuthRequired(api.deleteByKey))
 			r.Post("/*", api.AuthRequired(api.setByKey))
 		})
-		r.Get("/list/*", api.AuthRequired(api.listKV)) // тут возможно проблема
+		r.Get("/list/*", api.AuthRequired(api.listKV))
 
 		r.Post("/unseal", api.unseal)
 		r.Get("/master", api.master)
