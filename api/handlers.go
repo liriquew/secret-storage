@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"secret-storage/storage/encrypt_db"
 	"strings"
@@ -54,6 +55,7 @@ func (api *API) setByKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fmt.Println(kv)
 	err = api.storage.Set(username, prefix, kv.Key, kv.Value)
 	if err != nil {
 		api.errorLog.Println(err.Error())
@@ -129,10 +131,7 @@ func (api *API) listKV(w http.ResponseWriter, r *http.Request) {
 
 	username := r.Context().Value(usernameInterface{}).(string)
 	path, _ := strings.CutPrefix(r.URL.Path, "/api/list/")
-
 	prefix := strings.Split(path, "/")
-
-	prefix = prefix[1:] // случай ["list", ...]
 
 	api.infoLog.Println(username, len(prefix), prefix)
 

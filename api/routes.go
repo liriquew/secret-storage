@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 )
 
@@ -23,6 +24,8 @@ func (api *API) routes() http.Handler {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+
+	r.Use(middleware.Recoverer) // Если где-то внутри сервера (обработчика запроса) произойдет паника, приложение не должно упасть
 
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/signup", api.shamirRequired(api.signUp))
@@ -51,7 +54,13 @@ func keyCtx(next http.Handler) http.Handler {
 		path, _ := strings.CutPrefix(r.URL.Path, "/api/secrets/")
 		pathParts := strings.Split(path, "/")
 
-		fmt.Println(pathParts)
+		fmt.Println(len(pathParts), pathParts)
+
+		if len(pathParts) > 0 && pathParts[len(pathParts)-1] == "" {
+			pathParts = pathParts[:len(pathParts)-1]
+		}
+
+		fmt.Println(len(pathParts), pathParts)
 
 		ctx := context.WithValue(r.Context(), pathPartsInterface{}, pathParts)
 		next.ServeHTTP(w, r.WithContext(ctx))

@@ -18,9 +18,14 @@ type Record struct {
 	Value []byte
 }
 
-type RecordOut struct {
-	KV     Record
-	Indent string
+type BucketInfo struct {
+	Buckets []string `json:"buckets"`
+	KVs     []Record `json:"kvs"`
+}
+
+type TopLevelBucketInfo struct {
+	Buckets map[string]*TopLevelBucketInfo
+	KVS     []Record
 }
 
 var (
@@ -120,7 +125,7 @@ func (b *Bolt) Set(username string, prefix []string, key, value []byte, bucketNa
 		}
 
 		var err error
-		fmt.Println(len(prefix))
+
 		for _, pathPart := range prefix {
 			fmt.Println("CURR:", pathPart)
 			b, err = b.CreateBucketIfNotExists([]byte(pathPart))
@@ -165,8 +170,31 @@ func (b *Bolt) Delete(username string, prefix []string, key []byte, bucketName [
 	})
 }
 
-func (b *Bolt) ListKV(username []byte, path []string, vch chan Record, bch chan string, done chan interface{}) error {
-	return b.db.View(func(tx *bolt.Tx) error {
+func (b *Bolt) ListKV(username []byte, path []string) (*BucketInfo, error) {
+	valueCh := make(chan Record)
+	bucketCh := make(chan string)
+	done := make(chan struct{})
+
+	var valList []Record
+	var bucketList []string
+
+	go func() {
+		defer close(valueCh)
+		defer close(bucketCh)
+		defer close(done)
+		for {
+			select {
+			case v := <-valueCh:
+				valList = append(valList, v)
+			case b := <-bucketCh:
+				bucketList = append(bucketList, b)
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	err := b.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(kvBucketName)
 		if b == nil {
 			return fmt.Errorf("failed to lookup bolt DB")
@@ -177,79 +205,99 @@ func (b *Bolt) ListKV(username []byte, path []string, vch chan Record, bch chan 
 			return fmt.Errorf("failed to lookup user bucket")
 		}
 
+		fmt.Println(path)
 		b = openBucketByPath(path, b)
-
 		if b == nil {
 			return fmt.Errorf("bucket not found")
 		}
 
 		err := b.ForEach(func(k, v []byte) error {
-			select {
-			case <-done:
-				return nil
-			default:
-				if v == nil {
-					bch <- string(k)
-				} else {
-					vch <- Record{k, v}
-				}
+			if v == nil {
+				bucketCh <- string(k)
+			} else {
+				valueCh <- Record{k, v}
 			}
 			return nil
 		})
 
-		done <- 1
+		done <- struct{}{}
 
 		return err
 	})
+
+	return &BucketInfo{bucketList, valList}, err
 }
 
-func iterateBucketDecrypt(b *bolt.Bucket, indent string, ch chan RecordOut) error {
+func iterateBucket(b *bolt.Bucket, ch chan Record, done chan struct{}, kvsCh chan []Record) (*TopLevelBucketInfo, error) {
 	if b == nil {
-		return nil
+		return nil, nil
 	}
 
-	return b.ForEach(func(k, v []byte) error {
+	bucketList := make([][]byte, 0)
+	curBucket := &TopLevelBucketInfo{}
+
+	err := b.ForEach(func(k, v []byte) error {
+		fmt.Println(string(k))
 		if v == nil {
-			fmt.Printf("%sBucket: %s\n", indent, k)
-			return iterateBucketDecrypt(b.Bucket(k), indent+"  ", ch)
+			bucketList = append(bucketList, k)
 		} else {
-			ch <- RecordOut{Record{k, v}, indent}
+			ch <- Record{k, v}
 		}
 		return nil
-	})
-}
-
-func (b *Bolt) ShowList(ch chan RecordOut, done chan interface{}) ([]Record, error) {
-	fmt.Println("------KV------")
-	var list []Record
-	err := b.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(kvBucketName)
-		if b == nil {
-			return fmt.Errorf("failed to lookup bolt DB")
-		}
-		err := iterateBucketDecrypt(b, "", ch)
-		done <- 1
-		close(ch)
-
-		return err
 	})
 
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("-----USERS-----")
-	err = b.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(userBucketName)
+
+	done <- struct{}{}
+	curBucket.KVS = <-kvsCh
+	curBucket.Buckets = make(map[string]*TopLevelBucketInfo, len(bucketList))
+	for _, bucketName := range bucketList {
+		curBucket.Buckets[string(bucketName)], err = iterateBucket(b.Bucket(bucketName), ch, done, kvsCh)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return curBucket, nil
+}
+
+func (b *Bolt) ShowTopLevelBucket(bucketName []byte) (*TopLevelBucketInfo, error) {
+	kvCh := make(chan Record)
+	kvsCh := make(chan []Record)
+	arrCh := make(chan struct{})
+	done := make(chan struct{})
+
+	go func() {
+		defer close(kvCh)
+		defer close(done)
+		defer close(kvsCh)
+		kvs := make([]Record, 0)
+		for {
+			select {
+			case r := <-kvCh:
+				kvs = append(kvs, r)
+			case <-arrCh:
+				kvsCh <- kvs
+				kvs = make([]Record, 0)
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	BucketInfo := &TopLevelBucketInfo{}
+	err := b.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(kvBucketName)
 		if b == nil {
 			return fmt.Errorf("failed to lookup bolt DB")
 		}
 
-		c := b.Cursor()
+		var err error
+		BucketInfo, err = iterateBucket(b, kvCh, arrCh, kvsCh)
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			fmt.Printf("key=%s, value=%s\n", k, v)
-		}
-		return nil
+		return err
 	})
-	return list, err
+
+	return BucketInfo, err
 }
