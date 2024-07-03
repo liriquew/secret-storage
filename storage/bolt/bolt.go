@@ -23,8 +23,8 @@ type BucketInfo struct {
 	KVs     []Record `json:"kvs"`
 }
 
-type TopLevelBucketInfo struct {
-	Buckets map[string]*TopLevelBucketInfo
+type BucketFullInfo struct {
+	Buckets map[string]*BucketFullInfo
 	KVS     []Record
 }
 
@@ -205,7 +205,6 @@ func (b *Bolt) ListKV(username []byte, path []string) (*BucketInfo, error) {
 			return fmt.Errorf("failed to lookup user bucket")
 		}
 
-		fmt.Println(path)
 		b = openBucketByPath(path, b)
 		if b == nil {
 			return fmt.Errorf("bucket not found")
@@ -228,13 +227,13 @@ func (b *Bolt) ListKV(username []byte, path []string) (*BucketInfo, error) {
 	return &BucketInfo{bucketList, valList}, err
 }
 
-func iterateBucket(b *bolt.Bucket, ch chan Record, done chan struct{}, kvsCh chan []Record) (*TopLevelBucketInfo, error) {
+func iterateBucket(b *bolt.Bucket, ch chan Record, done chan struct{}, kvsCh chan []Record) (*BucketFullInfo, error) {
 	if b == nil {
 		return nil, nil
 	}
 
 	bucketList := make([][]byte, 0)
-	curBucket := &TopLevelBucketInfo{}
+	curBucket := &BucketFullInfo{}
 
 	err := b.ForEach(func(k, v []byte) error {
 		fmt.Println(string(k))
@@ -252,7 +251,7 @@ func iterateBucket(b *bolt.Bucket, ch chan Record, done chan struct{}, kvsCh cha
 
 	done <- struct{}{}
 	curBucket.KVS = <-kvsCh
-	curBucket.Buckets = make(map[string]*TopLevelBucketInfo, len(bucketList))
+	curBucket.Buckets = make(map[string]*BucketFullInfo, len(bucketList))
 	for _, bucketName := range bucketList {
 		curBucket.Buckets[string(bucketName)], err = iterateBucket(b.Bucket(bucketName), ch, done, kvsCh)
 		if err != nil {
@@ -262,7 +261,7 @@ func iterateBucket(b *bolt.Bucket, ch chan Record, done chan struct{}, kvsCh cha
 	return curBucket, nil
 }
 
-func (b *Bolt) ShowTopLevelBucket(bucketName []byte) (*TopLevelBucketInfo, error) {
+func (b *Bolt) ShowBucketRecursion(username []byte, prefix []string, bucketName []byte) (*BucketFullInfo, error) {
 	kvCh := make(chan Record)
 	kvsCh := make(chan []Record)
 	arrCh := make(chan struct{})
@@ -286,11 +285,21 @@ func (b *Bolt) ShowTopLevelBucket(bucketName []byte) (*TopLevelBucketInfo, error
 		}
 	}()
 
-	BucketInfo := &TopLevelBucketInfo{}
+	BucketInfo := &BucketFullInfo{}
 	err := b.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(kvBucketName)
 		if b == nil {
 			return fmt.Errorf("failed to lookup bolt DB")
+		}
+
+		b = b.Bucket(username)
+		if b == nil {
+			return fmt.Errorf("failed to lookup user bucket")
+		}
+
+		b = openBucketByPath(prefix, b)
+		if b == nil {
+			return fmt.Errorf("bucket not found")
 		}
 
 		var err error

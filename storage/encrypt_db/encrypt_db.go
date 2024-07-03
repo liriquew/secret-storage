@@ -3,7 +3,6 @@ package encrypt_db
 import (
 	"crypto/rand"
 	"errors"
-	"fmt"
 	"secret-storage/storage/bolt"
 	"secret-storage/storage/encrypt"
 	"secret-storage/storage/shamir"
@@ -29,14 +28,17 @@ type BucketInfo struct {
 	KVs     []KV     `json:"kvs"`
 }
 
+type BucketFullInfo struct {
+	Buckets map[string]*BucketFullInfo `json:"buckets"`
+	KVs     []KV                       `json:"kvs"`
+}
+
 var (
 	kvBucketName   = []byte("kv")
 	userBucketName = []byte("user")
 	rootBucketName = []byte("meta")
 	rootTokenName  = []byte("token")
-)
 
-var (
 	ErrUserNotFound     = errors.New("user not found")
 	ErrWrongPassword    = errors.New("wrong password")
 	ErrUserAlreadyExist = errors.New("user already exist")
@@ -136,34 +138,39 @@ func (b *BoltEncrypt) List(username string, prefix []string) (*BucketInfo, error
 	return infoDec, nil
 }
 
-func (b *BoltEncrypt) showBuckets(bucketName string, bucket *bolt.TopLevelBucketInfo, indent string) error {
-	fmt.Printf("%sBUCKET: %s\n", indent, bucketName)
-	for _, kv := range bucket.KVS {
+func (b *BoltEncrypt) showBuckets(bucketName string, bucket *bolt.BucketFullInfo, indent string) (*BucketFullInfo, error) {
+	// fmt.Printf("%sBUCKET: %s\n", indent, bucketName)
+	cur := &BucketFullInfo{}
+	cur.Buckets = make(map[string]*BucketFullInfo, len(bucket.Buckets))
+	cur.KVs = make([]KV, len(bucket.KVS))
+
+	for i, kv := range bucket.KVS {
 		valDec, err := b.wrapper.Decrypt(kv.Value)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		fmt.Printf("%sKEYVAL: %s : %s\n", indent, kv.Key, valDec)
+		cur.KVs[i] = KV{string(kv.Key), string(valDec)}
+		// fmt.Printf("%sKEYVAL: %s : %s\n", indent, kv.Key, valDec)
 	}
 
+	var err error
 	for bucketName, bucketInfo := range bucket.Buckets {
-		err := b.showBuckets(bucketName, bucketInfo, indent+"  ")
+		cur.Buckets[bucketName], err = b.showBuckets(bucketName, bucketInfo, indent+"  ")
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return cur, nil
 }
 
-func (b *BoltEncrypt) ListEncrypted() {
-	BucketInfo, err := b.db.ShowTopLevelBucket(kvBucketName)
+func (b *BoltEncrypt) ListEncrypted(username string, prefix []string) (*BucketFullInfo, error) {
+	BucketInfo, err := b.db.ShowBucketRecursion([]byte(username), prefix, kvBucketName)
 
 	if err != nil {
-		fmt.Println(err)
-		return
+		return nil, err
 	}
 
-	b.showBuckets(string(kvBucketName), BucketInfo, "")
+	return b.showBuckets(string(kvBucketName), BucketInfo, "")
 }
 
 func (b *BoltEncrypt) GetRootToken() ([]byte, error) {

@@ -36,12 +36,13 @@ func (api *API) routes() http.Handler {
 			r.Delete("/*", api.AuthRequired(api.deleteByKey))
 			r.Post("/*", api.AuthRequired(api.setByKey))
 		})
+
 		r.Get("/list/*", api.AuthRequired(api.listKV))
+		r.Get("/reclist/*", api.AuthRequired(api.listRecursion))
 
 		r.Post("/unseal", api.unseal)
 		r.Get("/master", api.master)
 
-		r.Get("/test", api.test)
 		r.Post("/show", api.showRootKey)
 	})
 

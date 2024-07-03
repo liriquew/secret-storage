@@ -21,13 +21,10 @@ type uData struct {
 }
 
 type tokenJWT struct {
-	Token string `json:"token,omitempty"`
+	Token string `json:"token"`
 }
 
 const (
-	keyUrlParam  = "key"
-	pathUrlParam = "path"
-
 	headerContentType = "Content-Type"
 	jsonContentType   = "application/json"
 	dbPath            = "./data.db"
@@ -71,6 +68,11 @@ func (api *API) getByKey(w http.ResponseWriter, r *http.Request) {
 	api.infoLog.Println("GET")
 	username := r.Context().Value(usernameInterface{}).(string)
 	pathParts := r.Context().Value(pathPartsInterface{}).([]string)
+
+	if len(pathParts) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
 
 	key := pathParts[len(pathParts)-1]
 	prefix := pathParts[:len(pathParts)-1]
@@ -135,9 +137,8 @@ func (api *API) listKV(w http.ResponseWriter, r *http.Request) {
 
 	api.infoLog.Println(username, len(prefix), prefix)
 
-	// случай ["list", ""] при url: /api/secrets/list
-	if len(prefix) == 1 && prefix[0] == "" {
-		prefix = nil
+	if len(prefix) != 0 && prefix[len(prefix)-1] == "" {
+		prefix = prefix[:len(prefix)-1]
 	}
 
 	BucketInfo, err := api.storage.List(username, prefix)
@@ -148,12 +149,36 @@ func (api *API) listKV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(BucketInfo.Buckets) == 0 && len(BucketInfo.KVs) == 0 {
-		w.WriteHeader(http.StatusNotFound)
+		http.Error(w, "Empty bucket", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set(headerContentType, jsonContentType)
 	json.NewEncoder(w).Encode(BucketInfo)
+}
+
+func (api *API) listRecursion(w http.ResponseWriter, r *http.Request) {
+	api.infoLog.Println("LIST -r")
+
+	username := r.Context().Value(usernameInterface{}).(string)
+	path, _ := strings.CutPrefix(r.URL.Path, "/api/reclist/")
+	prefix := strings.Split(path, "/")
+
+	api.infoLog.Println(username, len(prefix), prefix)
+
+	if len(prefix) != 0 && prefix[len(prefix)-1] == "" {
+		prefix = prefix[:len(prefix)-1]
+	}
+
+	listed, err := api.storage.ListEncrypted(username, prefix)
+	if err != nil {
+		api.errorLog.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set(headerContentType, jsonContentType)
+	json.NewEncoder(w).Encode(listed)
 }
 
 func (api *API) signUp(w http.ResponseWriter, r *http.Request) {
@@ -289,12 +314,6 @@ func (api *API) master(w http.ResponseWriter, r *http.Request) {
 }
 
 // далее обработчики для дебага
-
-func (api *API) test(w http.ResponseWriter, r *http.Request) {
-	api.infoLog.Println("TEST")
-
-	api.storage.ListEncrypted()
-}
 
 func (api *API) showRootKey(w http.ResponseWriter, r *http.Request) {
 	api.infoLog.Println("Show root key")
