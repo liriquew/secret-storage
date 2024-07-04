@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"secret-storage/storage/encrypt_db"
 	"strings"
@@ -52,7 +51,7 @@ func (api *API) setByKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println(kv)
+	api.infoLog.Println(kv)
 	err = api.storage.Set(username, prefix, kv.Key, kv.Value)
 	if err != nil {
 		api.errorLog.Println(err.Error())

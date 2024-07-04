@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"secret-storage/cli/config"
 )
@@ -11,7 +12,7 @@ var (
 	baseURL string = "http://localhost:8080/api/"
 )
 
-func prepareRequest(method, path string, data *KV) (*http.Response, error) {
+func prepareRequest(method, path string, data *KV, completePath bool) (*http.Response, error) {
 	token := config.GetToken()
 
 	client := &http.Client{}
@@ -32,7 +33,16 @@ func prepareRequest(method, path string, data *KV) (*http.Response, error) {
 		}
 	}
 
-	req, err := http.NewRequest(method, baseURL+path+key, bytes.NewBuffer(buf))
+	var url string
+	if method != "POST" && !completePath {
+		url = baseURL + path + "/" + key
+	} else {
+		url = baseURL + path
+	}
+
+	fmt.Println(url)
+
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(buf))
 	if err != nil {
 		return nil, err
 	}

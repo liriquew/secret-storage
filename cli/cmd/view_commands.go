@@ -20,11 +20,11 @@ type BucketFullInfo struct {
 
 func showBuckets(bucket *BucketFullInfo, indent string) {
 	for _, kv := range bucket.Kvs {
-		fmt.Printf("%sKEYVAL:\t%s - %s\n", indent, kv.Key, kv.Value)
+		fmt.Printf("%sKEYVAL:  %s - %s\n", indent, kv.Key, kv.Value)
 	}
 
 	for bName, b := range bucket.Buckets {
-		fmt.Printf("%sBUCKET:\t%s\n", indent, bName)
+		fmt.Printf("%sBUCKET:  %s\n", indent, bName)
 		showBuckets(b, indent+"  ")
 	}
 }
@@ -41,9 +41,7 @@ var listBucket = &cobra.Command{
 			url = "list/" + storagePath
 		}
 
-		fmt.Println(url)
-
-		response, err := prepareRequest("GET", url, nil)
+		response, err := prepareRequest("GET", url, nil, true)
 		if err != nil {
 			fmt.Println("Ошибка при выполнении запроса:", err)
 			return

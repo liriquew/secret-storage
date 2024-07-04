@@ -40,7 +40,6 @@ func (api *API) AuthRequired(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		if !isExist {
-			w.Write([]byte("user not found"))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}

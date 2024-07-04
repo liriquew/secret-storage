@@ -52,7 +52,7 @@ var signIn = &cobra.Command{
 }
 
 var signUp = &cobra.Command{
-	Use:   "signin",
+	Use:   "signup",
 	Short: "Регистрирует пользователя",
 	Run: func(cmd *cobra.Command, args []string) {
 		buf, err := json.Marshal(userData{username, password})

@@ -38,7 +38,6 @@ var (
 func New(path string) (*Bolt, error) {
 	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 1 * time.Second})
 	if err != nil {
-
 		return nil, err
 	}
 
@@ -66,7 +65,6 @@ func (b *Bolt) Close() error {
 
 func openBucketByPath(prefix []string, bucket *bolt.Bucket) *bolt.Bucket {
 	for _, pathPart := range prefix {
-		fmt.Println("CURR:", pathPart)
 		bucket = bucket.Bucket([]byte(pathPart))
 		if bucket == nil {
 			return nil
@@ -127,7 +125,6 @@ func (b *Bolt) Set(username string, prefix []string, key, value []byte, bucketNa
 		var err error
 
 		for _, pathPart := range prefix {
-			fmt.Println("CURR:", pathPart)
 			b, err = b.CreateBucketIfNotExists([]byte(pathPart))
 			if err != nil {
 				return err
@@ -236,7 +233,6 @@ func iterateBucket(b *bolt.Bucket, ch chan Record, done chan struct{}, kvsCh cha
 	curBucket := &BucketFullInfo{}
 
 	err := b.ForEach(func(k, v []byte) error {
-		fmt.Println(string(k))
 		if v == nil {
 			bucketList = append(bucketList, k)
 		} else {

@@ -17,7 +17,7 @@ var get = &cobra.Command{
 	Use:   "get [-k key] [-p path]",
 	Short: "Возвращает значение связанное с ключом",
 	Run: func(cmd *cobra.Command, args []string) {
-		response, err := prepareRequest("GET", "secrets/"+storagePath+key, nil)
+		response, err := prepareRequest("GET", "secrets/"+storagePath+"/"+key, nil, true)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -45,7 +45,7 @@ var set = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		data := KV{key, value}
 
-		response, err := prepareRequest("POST", "secrets/"+storagePath, &data)
+		response, err := prepareRequest("POST", "secrets/"+storagePath, &data, false)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -70,7 +70,7 @@ var delete = &cobra.Command{
 	Use:   "del [-k key] [-p path]",
 	Short: "Удаляет значение связанное с ключом",
 	Run: func(cmd *cobra.Command, args []string) {
-		response, err := prepareRequest("DELETE", "secrets/"+storagePath+key, nil)
+		response, err := prepareRequest("DELETE", "secrets/"+storagePath+"/"+key, nil, true)
 		if err != nil {
 			fmt.Println(err)
 		}
