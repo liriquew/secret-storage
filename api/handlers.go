@@ -27,6 +27,12 @@ const (
 	headerContentType = "Content-Type"
 	jsonContentType   = "application/json"
 	dbPath            = "./data.db"
+	JWTname           = "jwtname"
+)
+
+var (
+	kvBucketName   = []byte("kv")
+	metaBucketName = []byte("meta")
 )
 
 func (api *API) setByKey(w http.ResponseWriter, r *http.Request) {
@@ -52,10 +58,10 @@ func (api *API) setByKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.infoLog.Println(kv)
-	err = api.storage.Set(username, prefix, kv.Key, kv.Value)
+	err = api.storage.Set(username, prefix, kv.Key, kv.Value, kvBucketName)
 	if err != nil {
-		api.errorLog.Println(err.Error())
-		w.WriteHeader(http.StatusInternalServerError)
+		api.errorLog.Println(err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -82,17 +88,11 @@ func (api *API) getByKey(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
-	value, err := api.storage.Get(username, prefix, key)
+	value, err := api.storage.Get(username, prefix, key, kvBucketName)
 
 	if err != nil {
 		api.errorLog.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	if value == nil {
-		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("key not found"))
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -116,14 +116,16 @@ func (api *API) deleteByKey(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
-	err := api.storage.Delete(username, prefix, key)
+	deletedPartsCount, err := api.storage.Delete(username, prefix, key, kvBucketName)
 	if err != nil {
 		api.errorLog.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	data, _ := json.Marshal(deletedPartsCount)
 	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 	api.infoLog.Println("DEL OK")
 }
 
@@ -265,19 +267,39 @@ func (api *API) unseal(w http.ResponseWriter, r *http.Request) {
 
 	decodedData := make([][]byte, len(parts))
 	for i, str := range parts {
+		api.infoLog.Println(str)
 		bytesArray, err := base64.StdEncoding.DecodeString(str)
 		if err != nil {
 			api.errorLog.Println("Ошибка декодирования Base64:", err)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		decodedData[i] = bytesArray
 	}
 
-	api.storage, err = encrypt_db.NewEncryptKV(dbPath, decodedData)
+	err = api.storage.InitWrapper(decodedData)
 	if err != nil {
 		api.errorLog.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	JWTsecretKey, err = api.storage.Get("", nil, JWTname, metaBucketName)
+	if err != nil && !errors.Is(encrypt_db.ErrKeyNotFound, err) {
+		api.errorLog.Println(err)
+		return
+	}
+
+	if JWTsecretKey == nil {
+		JWTsecretKey, err = encrypt_db.GeneratePassword(12)
+		if err != nil {
+			return
+		}
+		err = api.storage.Set("", nil, JWTname, string(JWTsecretKey), metaBucketName)
+		if err != nil {
+			api.errorLog.Println(err)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -310,18 +332,4 @@ func (api *API) master(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(headerContentType, jsonContentType)
 	json.NewEncoder(w).Encode(encodedData)
 	api.infoLog.Println("SEAL OK")
-}
-
-// далее обработчики для дебага
-
-func (api *API) showRootKey(w http.ResponseWriter, r *http.Request) {
-	api.infoLog.Println("Show root key")
-	key, err := api.storage.GetRootToken()
-	if err != nil {
-		api.errorLog.Println(err)
-		w.WriteHeader(500)
-	}
-
-	api.infoLog.Println("ROOTKEY:\t", key)
-	w.WriteHeader(200)
 }

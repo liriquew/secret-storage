@@ -3,6 +3,7 @@ package encrypt_db
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"secret-storage/storage/bolt"
 	"secret-storage/storage/encrypt"
 	"secret-storage/storage/shamir"
@@ -36,30 +37,51 @@ type BucketFullInfo struct {
 var (
 	kvBucketName   = []byte("kv")
 	userBucketName = []byte("user")
-	rootBucketName = []byte("meta")
-	rootTokenName  = []byte("token")
+	rootName       = []byte("root")
 
 	ErrUserNotFound     = errors.New("user not found")
 	ErrWrongPassword    = errors.New("wrong password")
 	ErrUserAlreadyExist = errors.New("user already exist")
+	ErrKeyNotFound      = errors.New("key not found")
 )
 
-func NewEncryptKV(path string, secterParts [][]byte) (*BoltEncrypt, error) {
-	wrapper, err := encrypt.NewWrapper(path, secterParts)
-
-	if err != nil {
-		return nil, err
-	}
-
+// Возращает хранилище, но без механизмов шифрования
+func NewEncryptKV(path string) (*DBinfo, error) {
 	db, err := bolt.New(path)
 
 	if err != nil {
 		return nil, err
 	}
-	return &BoltEncrypt{
-		db:      db,
-		wrapper: wrapper,
+
+	rootPass, err := GeneratePassword(12)
+	if err != nil {
+		return nil, err
+	}
+
+	err = db.Set(nil, rootName, rootPass, userBucketName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DBinfo{
+		Storage: &BoltEncrypt{
+			db: db,
+		},
+		RootPass: string(rootPass),
 	}, nil
+}
+
+// Устанавливает механизмы щифрования в хранилище
+func (b *BoltEncrypt) InitWrapper(secterParts [][]byte) error {
+	wrapper, err := encrypt.NewWrapper(b.db, secterParts)
+
+	if err != nil {
+		return err
+	}
+
+	b.wrapper = wrapper
+
+	return nil
 }
 
 func (b *BoltEncrypt) Close() error {
@@ -78,46 +100,77 @@ func MakeMasterKey(keyInfo SecretInfo) ([][]byte, error) {
 	return parts, err
 }
 
+func makePrefix(username string, prefix []string) []string {
+	prefix = append(prefix, "")
+	copy(prefix[1:], prefix)
+	prefix[0] = username
+	return prefix
+}
+
 // Возвращает расшифрованное значение по ключу key
 // в пространстве имен пользователя по пути path
-func (b *BoltEncrypt) Get(username string, prefix []string, key string) ([]byte, error) {
-	valueE, err := b.db.Get(username, prefix, []byte(key), kvBucketName)
+func (b *BoltEncrypt) Get(username string, prefix []string, key string, bName []byte) ([]byte, error) {
+	if b.wrapper == nil {
+		return nil, fmt.Errorf("encrypt db not init full, need unseal")
+	}
+	if username != "" {
+		prefix = makePrefix(username, prefix)
+	}
+
+	valueE, err := b.db.Get(prefix, []byte(key), bName)
 
 	if err != nil {
 		return nil, err
 	}
 
 	if valueE == nil {
-		return nil, nil
+		return nil, ErrKeyNotFound
 	}
 
-	valueD, err := b.wrapper.Decrypt(valueE)
-	if err != nil {
-		return nil, err
-	}
-	return valueD, nil
+	return b.wrapper.Decrypt(valueE)
 }
 
 // Шифрует и устанавливает значение по ключу key
 // в пространстве имен пользователя по пути path
-func (b *BoltEncrypt) Set(username string, prefix []string, key, value string) error {
+func (b *BoltEncrypt) Set(username string, prefix []string, key, value string, bName []byte) error {
+	if b.wrapper == nil {
+		return fmt.Errorf("encrypt db not init full, need unseal")
+	}
 	valueE, err := b.wrapper.Encrypt([]byte(value))
 	if err != nil {
 		return err
 	}
-	return b.db.Set(username, prefix, []byte(key), []byte(valueE), kvBucketName)
+	if username != "" {
+		prefix = makePrefix(username, prefix)
+	} else if len(prefix) == 0 && string(bName) == string(kvBucketName) {
+		return fmt.Errorf("not allowed top-level root keys (try .../root/...)")
+	}
+
+	return b.db.Set(prefix, []byte(key), []byte(valueE), bName)
 }
 
 // Удаляет ключ key, и связанное с ним значение
 // в пространстве имен пользователя по пути path
-func (b *BoltEncrypt) Delete(username string, prefix []string, key string) error {
-	return b.db.Delete(username, prefix, []byte(key), kvBucketName)
+func (b *BoltEncrypt) Delete(username string, prefix []string, key string, bName []byte) (int, error) {
+	if b.wrapper == nil {
+		return 0, fmt.Errorf("encrypt db not init full, need unseal")
+	}
+	if username != "" {
+		prefix = makePrefix(username, prefix)
+	}
+	return b.db.Delete(prefix, []byte(key), bName)
 }
 
 // Возвращает список бакетов и ключей
 // в пространстве имен пользователя по пути path
 func (b *BoltEncrypt) List(username string, prefix []string) (*BucketInfo, error) {
-	info, err := b.db.ListKV([]byte(username), prefix)
+	if b.wrapper == nil {
+		return nil, fmt.Errorf("encrypt db not init full, need unseal")
+	}
+	if username != "" {
+		prefix = makePrefix(username, prefix)
+	}
+	info, err := b.db.ListKV(prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -138,8 +191,7 @@ func (b *BoltEncrypt) List(username string, prefix []string) (*BucketInfo, error
 	return infoDec, nil
 }
 
-func (b *BoltEncrypt) showBuckets(bucketName string, bucket *bolt.BucketFullInfo, indent string) (*BucketFullInfo, error) {
-	// fmt.Printf("%sBUCKET: %s\n", indent, bucketName)
+func (b *BoltEncrypt) prepareBuckets(bucket *bolt.BucketFullInfo) (*BucketFullInfo, error) {
 	cur := &BucketFullInfo{}
 	cur.Buckets = make(map[string]*BucketFullInfo, len(bucket.Buckets))
 	cur.KVs = make([]KV, len(bucket.KVS))
@@ -150,12 +202,11 @@ func (b *BoltEncrypt) showBuckets(bucketName string, bucket *bolt.BucketFullInfo
 			return nil, err
 		}
 		cur.KVs[i] = KV{string(kv.Key), string(valDec)}
-		// fmt.Printf("%sKEYVAL: %s : %s\n", indent, kv.Key, valDec)
 	}
 
 	var err error
 	for bucketName, bucketInfo := range bucket.Buckets {
-		cur.Buckets[bucketName], err = b.showBuckets(bucketName, bucketInfo, indent+"  ")
+		cur.Buckets[bucketName], err = b.prepareBuckets(bucketInfo)
 		if err != nil {
 			return nil, err
 		}
@@ -163,18 +214,22 @@ func (b *BoltEncrypt) showBuckets(bucketName string, bucket *bolt.BucketFullInfo
 	return cur, nil
 }
 
+// Возвращает "полное" представление бакета
+// рекурсивно перечисляет все вложенные бакеты
 func (b *BoltEncrypt) ListEncrypted(username string, prefix []string) (*BucketFullInfo, error) {
-	BucketInfo, err := b.db.ShowBucketRecursion([]byte(username), prefix, kvBucketName)
+	if b.wrapper == nil {
+		return nil, fmt.Errorf("encrypt db not init full, need unseal")
+	}
+	if username != "" {
+		prefix = makePrefix(username, prefix)
+	}
+	BucketInfo, err := b.db.ShowBucketRecursion(prefix, kvBucketName)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return b.showBuckets(string(kvBucketName), BucketInfo, "")
-}
-
-func (b *BoltEncrypt) GetRootToken() ([]byte, error) {
-	return b.db.Get("", nil, rootTokenName, rootBucketName)
+	return b.prepareBuckets(BucketInfo)
 }
 
 func (b *BoltEncrypt) CreateNewUser(username, password string) error {
@@ -188,11 +243,11 @@ func (b *BoltEncrypt) CreateNewUser(username, password string) error {
 		return ErrUserAlreadyExist
 	}
 
-	return b.db.Set("", nil, []byte(username), []byte(password), userBucketName)
+	return b.db.Set(nil, []byte(username), []byte(password), userBucketName)
 }
 
 func (b *BoltEncrypt) SelectUser(username, password string) error {
-	dbPass, err := b.db.Get("", nil, []byte(username), userBucketName)
+	dbPass, err := b.db.Get(nil, []byte(username), userBucketName)
 
 	if err != nil {
 		return err
@@ -210,7 +265,7 @@ func (b *BoltEncrypt) SelectUser(username, password string) error {
 }
 
 func (b *BoltEncrypt) CheckUser(username string) (bool, error) {
-	dbPass, err := b.db.Get("", nil, []byte(username), userBucketName)
+	dbPass, err := b.db.Get(nil, []byte(username), userBucketName)
 
 	return dbPass != nil, err
 }

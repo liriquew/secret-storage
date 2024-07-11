@@ -63,17 +63,20 @@ func (b *Bolt) Close() error {
 	return b.db.Close()
 }
 
-func openBucketByPath(prefix []string, bucket *bolt.Bucket) *bolt.Bucket {
+func openBucketByPath(prefix []string, bucket *bolt.Bucket) (*bolt.Bucket, error) {
 	for _, pathPart := range prefix {
+		if pathPart == "" {
+			return nil, fmt.Errorf("empty bucket name")
+		}
 		bucket = bucket.Bucket([]byte(pathPart))
 		if bucket == nil {
-			return nil
+			return nil, fmt.Errorf("failed to open bucket: %s", pathPart)
 		}
 	}
-	return bucket
+	return bucket, nil
 }
 
-func (b *Bolt) Get(username string, prefix []string, key []byte, bucketName []byte) ([]byte, error) {
+func (b *Bolt) Get(prefix []string, key []byte, bucketName []byte) ([]byte, error) {
 	b.rwMutex.RLock()
 	defer b.rwMutex.RUnlock()
 	var value []byte
@@ -83,18 +86,9 @@ func (b *Bolt) Get(username string, prefix []string, key []byte, bucketName []by
 			return fmt.Errorf("failed to lookup DB")
 		}
 
-		if username != "" {
-			b = b.Bucket([]byte(username))
-			if b == nil {
-				return fmt.Errorf("the user doesn't have any buckets")
-			}
-		} else if prefix != nil { // единственный некорректный случай
-			return fmt.Errorf("empty username and non-empty prefix")
-		}
-
-		b = openBucketByPath(prefix, b)
-		if b == nil {
-			return fmt.Errorf("incorrect path")
+		b, err := openBucketByPath(prefix, b)
+		if err != nil {
+			return err
 		}
 
 		value = b.Get(key)
@@ -103,7 +97,7 @@ func (b *Bolt) Get(username string, prefix []string, key []byte, bucketName []by
 	return value, err
 }
 
-func (b *Bolt) Set(username string, prefix []string, key, value []byte, bucketName []byte) error {
+func (b *Bolt) Set(prefix []string, key, value []byte, bucketName []byte) error {
 	b.rwMutex.Lock()
 	defer b.rwMutex.Unlock()
 	return b.db.Update(func(tx *bolt.Tx) error {
@@ -112,18 +106,7 @@ func (b *Bolt) Set(username string, prefix []string, key, value []byte, bucketNa
 			return fmt.Errorf("failed to lookup bolt DB")
 		}
 
-		if username != "" {
-			var err error
-			b, err = b.CreateBucketIfNotExists([]byte(username))
-			if err != nil {
-				return err
-			}
-		} else if prefix != nil { // единственный некорректный случай
-			return fmt.Errorf("empty username and non-empty prefix")
-		}
-
 		var err error
-
 		for _, pathPart := range prefix {
 			b, err = b.CreateBucketIfNotExists([]byte(pathPart))
 			if err != nil {
@@ -139,35 +122,105 @@ func (b *Bolt) Set(username string, prefix []string, key, value []byte, bucketNa
 	})
 }
 
-func (b *Bolt) Delete(username string, prefix []string, key []byte, bucketName []byte) error {
+func (b *Bolt) Delete(prefix []string, key []byte, bucketName []byte) (int, error) {
+	bucketMap := make([]bool, len(prefix)) // true если бакет пуст
+	deletedParts := 0
+
 	b.rwMutex.Lock()
 	defer b.rwMutex.Unlock()
-	return b.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketName) // kv
+
+	err := b.db.Update(func(tx *bolt.Tx) error {
+		topLevelBucket := tx.Bucket(bucketName) // kv
 		if b == nil {
 			return fmt.Errorf("failed to lookup bolt DB")
 		}
 
-		if username != "" {
-			b = b.Bucket([]byte(username))
+		var b *bolt.Bucket
+
+		if prefix[0] != "" {
+			b = topLevelBucket.Bucket([]byte(prefix[0]))
+			if b == nil {
+				return fmt.Errorf("the user doesn't have any buckets")
+			}
 		} else if prefix != nil { // единственный некорректный случай
 			return fmt.Errorf("empty username and non-empty prefix")
 		}
 
-		if b == nil {
-			return fmt.Errorf("the user doesn't have any buckets")
+		for i, pathPart := range prefix[1:] {
+			i++
+			b = b.Bucket([]byte(pathPart))
+			if b == nil {
+				return fmt.Errorf("incorrect path")
+			}
+
+			c := b.Cursor()
+			k, _ := c.First()
+			if i+1 < len(prefix) && string(k) == prefix[i+1] {
+				k, _ = c.Next()
+			}
+			bucketMap[i] = k == nil
 		}
 
-		b = openBucketByPath(prefix, b)
-		if b == nil {
-			return fmt.Errorf("incorrect path")
+		err := b.Delete(key)
+		if err != nil {
+			return err
 		}
 
-		return b.Delete(key)
+		if len(prefix) == 1 {
+			return nil
+		}
+
+		k, _ := b.Cursor().First()
+		bucketMap[len(prefix)-1] = k == nil
+
+		// вторая часть транзакции: удаление пустых бакетов
+
+		b = topLevelBucket.Bucket([]byte(prefix[0]))
+
+		indexToDelete := -1
+		isAllPathEmpty := true
+		for i := len(prefix) - 1; i >= 1; i-- {
+			isAllPathEmpty = isAllPathEmpty && bucketMap[i]
+			if !bucketMap[i] {
+				indexToDelete = i + 1
+				if indexToDelete == len(prefix) {
+					indexToDelete = -1
+				}
+				break
+			}
+		}
+
+		if isAllPathEmpty && len(prefix) > 0 {
+			deletedParts = len(prefix) - 1
+			return b.DeleteBucket([]byte(prefix[1]))
+		}
+
+		if indexToDelete == -1 {
+			return nil
+		}
+
+		for i, pathPart := range prefix[1:] {
+			i++
+			if i == indexToDelete {
+				deletedParts = len(prefix) - i
+				err := b.DeleteBucket([]byte(pathPart))
+				if err != nil {
+					deletedParts = 0
+					return fmt.Errorf("failed to delete 'empty' path in boltdb")
+				}
+				return nil
+			}
+			b = b.Bucket([]byte(pathPart))
+		}
+		return nil
 	})
+	if err != nil {
+		return 0, err
+	}
+	return deletedParts, nil
 }
 
-func (b *Bolt) ListKV(username []byte, path []string) (*BucketInfo, error) {
+func (b *Bolt) ListKV(prefix []string) (*BucketInfo, error) {
 	valueCh := make(chan Record)
 	bucketCh := make(chan string)
 	done := make(chan struct{})
@@ -197,17 +250,12 @@ func (b *Bolt) ListKV(username []byte, path []string) (*BucketInfo, error) {
 			return fmt.Errorf("failed to lookup bolt DB")
 		}
 
-		b = b.Bucket(username)
-		if b == nil {
-			return fmt.Errorf("failed to lookup user bucket")
+		b, err := openBucketByPath(prefix, b)
+		if err != nil {
+			return err
 		}
 
-		b = openBucketByPath(path, b)
-		if b == nil {
-			return fmt.Errorf("bucket not found")
-		}
-
-		err := b.ForEach(func(k, v []byte) error {
+		err = b.ForEach(func(k, v []byte) error {
 			if v == nil {
 				bucketCh <- string(k)
 			} else {
@@ -257,7 +305,7 @@ func iterateBucket(b *bolt.Bucket, ch chan Record, done chan struct{}, kvsCh cha
 	return curBucket, nil
 }
 
-func (b *Bolt) ShowBucketRecursion(username []byte, prefix []string, bucketName []byte) (*BucketFullInfo, error) {
+func (b *Bolt) ShowBucketRecursion(prefix []string, bucketName []byte) (*BucketFullInfo, error) {
 	kvCh := make(chan Record)
 	kvsCh := make(chan []Record)
 	arrCh := make(chan struct{})
@@ -288,17 +336,11 @@ func (b *Bolt) ShowBucketRecursion(username []byte, prefix []string, bucketName 
 			return fmt.Errorf("failed to lookup bolt DB")
 		}
 
-		b = b.Bucket(username)
-		if b == nil {
-			return fmt.Errorf("failed to lookup user bucket")
+		b, err := openBucketByPath(prefix, b)
+		if err != nil {
+			return err
 		}
 
-		b = openBucketByPath(prefix, b)
-		if b == nil {
-			return fmt.Errorf("bucket not found")
-		}
-
-		var err error
 		BucketInfo, err = iterateBucket(b, kvCh, arrCh, kvsCh)
 
 		return err

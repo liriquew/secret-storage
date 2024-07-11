@@ -15,17 +15,12 @@ type Wrapper struct {
 	keyBytes []byte
 }
 
-func NewWrapper(path string, secretParts [][]byte) (*Wrapper, error) {
+func NewWrapper(db *bolt.Bolt, secretParts [][]byte) (*Wrapper, error) {
 	secretKey, err := shamir.Combine(secretParts)
 	if err != nil {
 		return nil, err
 	}
 	shamirWrapper, err := getAesGcmByKeyBytes(secretKey)
-	if err != nil {
-		return nil, err
-	}
-
-	db, err := bolt.New(path)
 	if err != nil {
 		return nil, err
 	}
@@ -48,6 +43,7 @@ func NewWrapper(path string, secretParts [][]byte) (*Wrapper, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		db.SetToken(rootKeyEnc)
 	case 32 + aes.BlockSize + shamirWrapper.aead.NonceSize():
 		rootKeyDec, err = shamirWrapper.Decrypt(rootKey)
@@ -56,10 +52,6 @@ func NewWrapper(path string, secretParts [][]byte) (*Wrapper, error) {
 		}
 	default:
 		return nil, errors.New("invalid key size")
-	}
-
-	if err = db.Close(); err != nil {
-		return nil, errors.New("failed to close db")
 	}
 
 	wrapper, err := getAesGcmByKeyBytes(rootKeyDec)

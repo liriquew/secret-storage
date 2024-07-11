@@ -42,8 +42,6 @@ func (api *API) routes() http.Handler {
 
 		r.Post("/unseal", api.unseal)
 		r.Get("/master", api.master)
-
-		r.Post("/show", api.showRootKey)
 	})
 
 	return r
@@ -54,13 +52,9 @@ func keyCtx(next http.Handler) http.Handler {
 		path, _ := strings.CutPrefix(r.URL.Path, "/api/secrets/")
 		pathParts := strings.Split(path, "/")
 
-		// fmt.Println(len(pathParts), pathParts)
-
 		if len(pathParts) > 0 && pathParts[len(pathParts)-1] == "" {
 			pathParts = pathParts[:len(pathParts)-1]
 		}
-
-		// fmt.Println(len(pathParts), pathParts)
 
 		ctx := context.WithValue(r.Context(), pathPartsInterface{}, pathParts)
 		next.ServeHTTP(w, r.WithContext(ctx))

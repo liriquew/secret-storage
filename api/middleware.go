@@ -12,20 +12,20 @@ import (
 
 type usernameInterface struct{}
 
+var JWTsecretKey []byte
+
 func (api *API) AuthRequired(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if api.storage == nil {
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte("not enough key parts"))
-			return
-		}
-
 		username, err := CheckJWT(r)
 
 		if err != nil {
-			api.errorLog.Println("AUTH: Ошибка при проверке JWT токена:", err)
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(err.Error()))
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		if username == "root" {
+			ctx := context.WithValue(r.Context(), usernameInterface{}, "")
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 
@@ -33,14 +33,31 @@ func (api *API) AuthRequired(next http.HandlerFunc) http.HandlerFunc {
 		isExist, err := api.storage.CheckUser(username)
 
 		if err != nil {
-			api.errorLog.Println("AUTH: Ошибка при проверке пользователя:", err)
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(err.Error()))
+			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
 
 		if !isExist {
-			w.WriteHeader(http.StatusUnauthorized)
+			http.Error(w, "user not exist", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), usernameInterface{}, username)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (api *API) RootRequired(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, err := CheckJWT(r)
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		if username != "root" {
+			http.Error(w, "root required", http.StatusForbidden)
 			return
 		}
 
