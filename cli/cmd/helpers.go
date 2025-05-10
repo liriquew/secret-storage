@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"secret-storage/cli/config"
+
+	"github.com/liriquew/secret_storage/cli/config"
 )
 
 var (

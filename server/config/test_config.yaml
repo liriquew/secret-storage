@@ -1,0 +1,5 @@
+service_config:
+  port: "8080"
+  host: "localhost"
+storage_config:
+  path: "./data/data.db"

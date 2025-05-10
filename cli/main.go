@@ -1,6 +1,6 @@
 package main
 
-import "secret-storage/cli/cmd"
+import "github.com/liriquew/secret_storage/cli/cmd"
 
 func main() {
 	cmd.Execute()

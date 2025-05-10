@@ -1,0 +1,315 @@
+openapi: 3.0.0
+info:
+  title: secret-storage
+  version: 1.0.0
+servers:
+  - url: https://localhost:8000
+tags:
+  - name: seal
+    description: Разблокировка хранилища
+  - name: secrets
+    description: Работа с хранилищем
+  - name: user
+    description: Авторизация/регистрация пользователя
+paths:
+  /api/master:
+    post:
+      tags: 
+        - seal
+      summary: Генерация частей мастер ключа
+      description: Генерация частей мастер ключа для разблокировки хранилища
+      parameters:
+        - name: parts
+          in: query
+          description: 2 <= parts, recoveryParts <= 256
+          schema:
+            type: integer
+            example: 7
+        - name: threshold
+          in: query
+          description: 2 <= parts, recoveryParts <= 256
+          schema:
+            type: integer
+            example: 3
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/masterKeyInfo'
+        required: true
+      responses:
+        '200':
+          description: Пара ключ-значение добавлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/masterParts'
+        '400':
+          description: Неверно указаны параметры запроса
+  /api/unseal:
+    post:
+      tags:
+        - seal
+      summary: Разблокировка хранилища по частям мастер-ключа
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/keyParts'
+        required: true
+      responses:
+        '200':
+          description: Хранилище разблокировано
+        '400':
+          description: Неверно указаны части мастер-ключа
+  /api/secrets/{path}:
+    post:
+      tags:
+        - secrets
+      summary: Создает/устанавливает пару ключ-значение
+      parameters:
+        - name: path
+          in: path
+          description: Путь до ключа в пространстве имен пользователя
+          required: true
+          schema:
+            type: string
+          example: /path/to/namespace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/keyvalue'
+        required: true
+      responses:
+        '200':
+          description: Пара ключ-значение добавлена
+        '400':
+          description: Неверно указаны параметры запроса
+      security:
+        - BearerAuth: []
+  /api/secrets/{path}/{key}:
+    get:
+      tags:
+        - secrets
+      summary: Возвращает значение связанное с ключом
+      parameters:
+        - name: path
+          in: path
+          description: Путь до ключа в пространстве имен пользователя
+          required: true
+          schema:
+            type: string
+          example: /path/to/namespace
+        - name: key
+          in: path
+          description: Ключ, по которому надо получить значение
+          required: true
+          example: keyExample
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Операция выполнена успешно
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/keyvalue'
+        '400':
+          description: Неверно указаны параметры запроса
+        '404':
+          description: Ключ, указанный в теле запроса не существует
+      security:
+        - BearerAuth: []
+    delete:
+      tags:
+        - secrets
+      summary: Удаляет ключ и связнное с ним значение
+      parameters:
+        - name: path
+          in: path
+          description: Путь до ключа в пространстве имен пользователя
+          required: true
+          schema:
+            type: string
+          example: /path/to/namespace
+        - name: key
+          in: path
+          description: Ключ, по которому надо получить значение
+          required: true
+          example: keyExample
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ключ и связанное с ним значние успешно удалены
+        '400':
+          description: Не указан ключ для удаления
+      security:
+        - BearerAuth: []
+  /api/list/{path}:
+    get:
+      tags:
+        - secrets
+      summary: Возращает список всех вложенных пространств имен и ключей
+      description: Возращает список всех вложенных пространств имен и ключей в указанном пространстве имен
+      parameters:
+        - name: path
+          in: path
+          description: Путь до пространства имен пользователя
+          required: true
+          schema:
+            type: string
+          example: /path/to/namespace
+      responses:
+        '200':
+          description: Операция выполнена успешно
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/namespaceInfo'
+        '404':
+          description: В хранилище нет ни одного ключа
+      security:
+        - BearerAuth: []
+  /api/signup:
+    post:
+      tags:
+        - user
+      summary: Регистрация нового пользователя
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/unamepass'
+        required: true
+      responses:
+        '200':
+          description: Пользователь успешно зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWTtoken'
+        '400':
+          description: Неверно указаны параметры запроса
+        '409':
+          description: Пользователь с таким именем уже существует
+  /api/signin:
+    post:
+      tags:
+        - user
+      summary: Авторизация и взятие токена для аутентификации
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/unamepass'
+        required: true
+      responses:
+        '200':
+          description: Пользователь успешно зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWTtoken'
+        '400':
+          description: Неверно указаны параметры запроса
+        '401':
+          description: Пользователя с таким именем не существует
+components:
+  schemas:
+    masterParts:
+      type: array
+      items:
+        type: string
+      example: ["PKtKBpTyeuTct2kpALgQzL+0Vorsw65TK/65DHT5NkQG",
+                "ih/wabZ5xvysywNz4UX5fqL2d2JNdRL4woFUVSBFIWcF",
+                "bcyJIZFr7VFWmg5oYa+QS7nYD/uyRQUffLSV2A7nExMH",
+                "UNa/4Uyx6OC6RTgX6bf4lMhfgry/iU/K5VmfrDlUvsoB",
+                "5mIFjm46VPjKOVJNCEoRJtUdo1QeP/NhDCZy9W3oqekC",
+                "23gzTrPgUUkm5mQygFJ5+aSaLhMT87m0lct4gVpbBDAE",
+                "twXGqWujw01AFDUMaV2RodNx+iVAuVgtW2xeIRf2jL4D"]
+                
+    keyParts:
+      type: array
+      items:
+        type: string
+      example: ["DMBVPw5jjqo3jN0RahYzSqboTE1Yg89qTpoC5LIpEcsE",
+                "q6/S5ywQlUPyZOSz1RI3bJyw7CD6rXonDH23BQwh37AB",
+                "Rt8DX+6PCKPZRUwwojU9QCdwJuukI/qL2sN0qvAXBicD"]
+    masterKeyInfo:
+      type: object
+      required:
+        - parts
+        - threshold
+      properties:
+        parts:
+          type: integer
+          example: 7
+          description: Общее число генерируемых ключей
+        threshold:
+          type: integer
+          example: 3
+          description: Число ключей, необходимых для расшифрования хранилища
+    keyvalue:
+      type: object
+      required:
+        - key
+        - value
+      properties:
+        key:
+          type: string
+          example: keyexample
+          description: Ключ, связанный с значением
+        value:
+          type: string
+          example: valueexample
+          description: Значение
+    namespaceInfo:
+      type: object
+      required:
+        - buckets
+        - kvs
+      properties:
+        buckets:
+          type: array
+          items: 
+            type: string
+          example: ["namespace1", "namespace2"]
+          description: Список доступных пространств имен
+        kvs:
+          type: array
+          items: 
+            $ref: '#/components/schemas/keyvalue'
+          description: Доступные ключи
+          example: [{"key":"key1", "value":"value1"}, {"key":"key2", "value":"value2"}]
+    JWTtoken:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTkyMTc2MzksImlhdCI6MTcxOTE3NDQzOSwic3ViIjoidW5hbWUifQ.h0VoxnCRY1Ou93VGkbkww92WaQzwSXqdJC_e2stYnm8
+
+          description: JWT токен для аутентификации
+
+    unamepass:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: username
+          description: Имя пользователя
+        password:
+          type: string
+          example: password
+          description: Имя пользователя
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

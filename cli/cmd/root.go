@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"os"
-	"secret-storage/cli/config"
 
+	"github.com/liriquew/secret_storage/cli/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

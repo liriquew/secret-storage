@@ -1,29 +1,38 @@
 <script>
 import HeaderTitle from "@/components/HeaderTitle.vue"
+import config from "@/config"
 
 export default {
     components: {
         HeaderTitle,
     },
-    methods: {
-      async handleSubmit(event) {
-        event.preventDefault();
-
-        const userText = event.target.userText.value;
-        const stringArray = userText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-
-        const response = await fetch("http://localhost:8080/api/unseal", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(stringArray)
-        })
-
-        if (response.ok) {
-          this.$router.push("/")
+    data() {
+        return {
+            keyPart: "",
         }
-      }
+    },
+    methods: {
+        async handleSubmit(event) {
+            event.preventDefault();
+
+            const response = await fetch(`${config["api_host"]}/api/unseal?part=${this.keyPart}`, {
+                method: "POST",
+            })
+
+            if (response.ok) {
+                this.keyPart = ""
+            }
+        },
+        async combineComplete() {
+            const response = await fetch(`${config["api_host"]}/api/unseal/complete`, {method: "POST"})
+
+            if (response.ok) {
+                this.$router.push("/")
+            }
+        },
+        inputPart(event) {
+            this.keyPart = event.target.value
+        }
     }
 }
 </script>
@@ -35,10 +44,12 @@ export default {
             <p class="form_head_text">Разблокировка</p>
 
             <form @submit="handleSubmit">
-                <label for="userText" class="form_label">Части мастер-ключа:</label><br>
-                <textarea class="form_textarea" id="userText" name="userText" rows="10" cols="30"></textarea><br>
-                <button type="submit" class="form_button">Submit</button>
+                <label for="userText" class="form_label">Часть мастер-ключа:</label><br>
+                <input class="form_textarea" :value="keyPart" @input="inputPart" name="userText" rows="10" cols="30">
+                <button type="submit" class="form_button">Отправить</button>
             </form>
+
+            <button class="form_button" style="margin-top: 18px;" @click="combineComplete">Все части отправлены<br> (в том числе и участников)</button>
         </div>
     </div>
 </template>

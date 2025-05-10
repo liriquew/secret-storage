@@ -1,5 +1,7 @@
 <script>
 import Cookies from "js-cookie";
+import config from "@/config"
+
 export default {
   data() {
     return {
@@ -23,7 +25,7 @@ export default {
         }
       }
 
-      fetch('http://localhost:8080/api/signin', {
+      fetch(`${config["api_host"]}/api/signin`, {
         method: "post",
         headers: {
           "Content-Type": "application/json"
